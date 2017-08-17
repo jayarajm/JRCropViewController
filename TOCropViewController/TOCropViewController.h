@@ -69,7 +69,7 @@ typedef NS_ENUM(NSInteger, TOCropViewControllerToolbarPosition) {
  @param cropRect A rectangle indicating the crop region of the image the user chose (In the original image's local co-ordinate space)
  @param angle The angle of the image when it was cropped
  */
-- (void)cropViewController:(nonnull TOCropViewController *)cropViewController didCropToImage:(nonnull UIImage *)image withRect:(CGRect)cropRect angle:(NSInteger)angle NS_SWIFT_NAME(cropViewController(_:didCropToImage:rect:angle:));
+- (void)cropViewController:(nonnull TOCropViewController *)cropViewController didCropToImage:(nonnull UIImage *)image withRect:(CGRect)cropRect angle:(NSInteger)angle NS_SWIFT_NAME(cropViewController(_:didCropToImage:withRect:angle:));
 
 /**
  If the cropping style is set to circular, implementing this delegate will return a circle-cropped version of the selected
@@ -79,7 +79,7 @@ typedef NS_ENUM(NSInteger, TOCropViewControllerToolbarPosition) {
  @param cropRect A rectangle indicating the crop region of the image the user chose (In the original image's local co-ordinate space)
  @param angle The angle of the image when it was cropped
  */
-- (void)cropViewController:(nonnull TOCropViewController *)cropViewController didCropToCircularImage:(nonnull UIImage *)image withRect:(CGRect)cropRect angle:(NSInteger)angle NS_SWIFT_NAME(cropViewController(_:didCropToCircleImage:rect:angle:));
+- (void)cropViewController:(nonnull TOCropViewController *)cropViewController didCropToCircularImage:(nonnull UIImage *)image withRect:(CGRect)cropRect angle:(NSInteger)angle NS_SWIFT_NAME(cropViewController(_:didCropToCircularImage:withRect:angle:));
 
 /**
  If implemented, when the user hits cancel, or completes a 
@@ -271,7 +271,7 @@ typedef NS_ENUM(NSInteger, TOCropViewControllerToolbarPosition) {
  
  @param image The image that will be used to crop.
  */
-- (nonnull instancetype)initWithImage:(nonnull UIImage *)image NS_SWIFT_NAME(init(image:));
+- (nonnull instancetype)initWithImage:(nonnull UIImage *)image isEnableDrawToCrop:(BOOL)drawToCrop NS_SWIFT_NAME(init(image:isEnableDrawToCrop:));
 
 /** 
  Creates a new instance of a crop view controller with the supplied image and cropping style
@@ -279,7 +279,7 @@ typedef NS_ENUM(NSInteger, TOCropViewControllerToolbarPosition) {
  @param style The cropping style that will be used with this view controller (eg, rectangular, or circular)
  @param image The image that will be cropped
  */
-- (nonnull instancetype)initWithCroppingStyle:(TOCropViewCroppingStyle)style image:(nonnull UIImage *)image NS_SWIFT_NAME(init(croppingStyle:image:));
+- (nonnull instancetype)initWithCroppingStyle:(TOCropViewCroppingStyle)style isEnableDrawToCrop:(BOOL)drawToCrop image:(nonnull UIImage *)image NS_SWIFT_NAME(init(croppingStyle:isEnableDrawToCrop:image:));
 
 /**
  Resets object of TOCropViewController class as if user pressed reset button in the bottom bar themself

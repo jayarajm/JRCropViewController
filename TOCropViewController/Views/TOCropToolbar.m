@@ -53,10 +53,11 @@
 
 @implementation TOCropToolbar
 
+
 - (instancetype)initWithFrame:(CGRect)frame
 {
     if (self = [super initWithFrame:frame]) {
-        [self setup];
+        // TODO: What you want
     }
     
     return self;
@@ -121,7 +122,11 @@
     _clampButton = [UIButton buttonWithType:UIButtonTypeSystem];
     _clampButton.contentMode = UIViewContentModeCenter;
     _clampButton.tintColor = [UIColor whiteColor];
-    [_clampButton setImage:[TOCropToolbar clampImage] forState:UIControlStateNormal];
+    if (_isClampForDraw) {
+        [_clampButton setImage:[TOCropToolbar scissorImage] forState:UIControlStateNormal];
+    } else {
+        [_clampButton setImage:[TOCropToolbar clampImage] forState:UIControlStateNormal];
+    }
     [_clampButton addTarget:self action:@selector(buttonTapped:) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:_clampButton];
     
@@ -516,6 +521,10 @@
     return resetImage;
 }
 
++ (UIImage *)scissorImage {
+    return [UIImage imageNamed:@"ic_content_cut_white"];
+}
+
 + (UIImage *)clampImage
 {
     UIImage *clampImage = nil;
@@ -556,7 +565,6 @@
         clampImage = UIGraphicsGetImageFromCurrentImageContext();
     }
     UIGraphicsEndImageContext();
-    
     return clampImage;
 }
 

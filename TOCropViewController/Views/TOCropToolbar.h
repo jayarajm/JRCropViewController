@@ -68,5 +68,9 @@
 /* Done button frame for popover controllers */
 @property (nonatomic, readonly) CGRect doneButtonFrame;
 
+@property (nonatomic, assign) BOOL isClampForDraw;
+
+
+- (void)setup;
 
 @end

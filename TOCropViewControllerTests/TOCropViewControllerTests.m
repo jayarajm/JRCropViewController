@@ -25,7 +25,7 @@
     UIGraphicsEndImageContext();
     
     //Perform test
-    TOCropViewController *controller = [[TOCropViewController alloc] initWithImage:image];
+    TOCropViewController *controller = [[TOCropViewController alloc] initWithImage:image isEnableDrawToCrop:true];
     UIView *view = controller.view;
     XCTAssertNotNil(view);
 }
