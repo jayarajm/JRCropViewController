@@ -25,8 +25,9 @@
 #import "TOActivityCroppedImageProvider.h"
 #import "UIImage+CropRotate.h"
 #import "TOCroppedImageAttributes.h"
+#import "TODrawCropperView.h"
 
-@interface TOCropViewController () <UIActionSheetDelegate, UIViewControllerTransitioningDelegate, TOCropViewDelegate>
+@interface TOCropViewController () <UIActionSheetDelegate, UIViewControllerTransitioningDelegate, TOCropViewDelegate, TODrawCropperViewDelegate>
 
 /* The target image */
 @property (nonatomic, readwrite) UIImage *image;
@@ -34,9 +35,13 @@
 /* The cropping style of the crop view */
 @property (nonatomic, assign, readwrite) TOCropViewCroppingStyle croppingStyle;
 
+/* The enable cropping with handdrawing  */
+@property (nonatomic, assign) BOOL isEnableHandDrawingToCrop;
+
 /* Views */
 @property (nonatomic, strong) TOCropToolbar *toolbar;
 @property (nonatomic, strong, readwrite) TOCropView *cropView;
+@property (nonatomic, strong, readwrite) TODrawCropperView *drawCropperView;
 @property (nonatomic, strong) UIView *toolbarSnapshotView;
 
 /* Transition animation controller */
@@ -71,7 +76,7 @@
 
 @implementation TOCropViewController
 
-- (instancetype)initWithCroppingStyle:(TOCropViewCroppingStyle)style image:(UIImage *)image
+- (instancetype)initWithCroppingStyle:(TOCropViewCroppingStyle)style isEnableDrawToCrop:(BOOL)drawToCrop image:(UIImage *)image
 {
     NSParameterAssert(image);
 
@@ -84,6 +89,7 @@
         _transitionController = [[TOCropViewControllerTransitioning alloc] init];
         _image = image;
         _croppingStyle = style;
+        _isEnableHandDrawingToCrop = drawToCrop;
         
         _aspectRatioPreset = TOCropViewControllerAspectRatioPresetOriginal;
         _toolbarPosition = TOCropViewControllerToolbarPositionBottom;
@@ -93,9 +99,9 @@
     return self;
 }
 
-- (instancetype)initWithImage:(UIImage *)image
+- (instancetype)initWithImage:(UIImage *)image isEnableDrawToCrop:(BOOL)drawToCrop
 {
-    return [self initWithCroppingStyle:TOCropViewCroppingStyleDefault image:image];
+    return [self initWithCroppingStyle:TOCropViewCroppingStyleDefault isEnableDrawToCrop:drawToCrop image:image];
 }
 
 - (void)viewDidLoad
@@ -121,7 +127,7 @@
     self.toolbar.rotateClockwiseButtonTapped        = ^{ [weakSelf rotateCropViewClockwise]; };
     
     self.toolbar.clampButtonHidden = self.aspectRatioPickerButtonHidden || circularMode;
-    self.toolbar.rotateClockwiseButtonHidden = self.rotateClockwiseButtonHidden && circularMode;
+    self.toolbar.rotateClockwiseButtonHidden = self.rotateClockwiseButtonHidden && !circularMode;
     
     self.transitioningDelegate = self;
     self.view.backgroundColor = self.cropView.backgroundColor;
@@ -283,6 +289,11 @@
 
         frame.size.width = CGRectGetWidth(bounds);
         frame.size.height = CGRectGetHeight(bounds) - 44.0f;
+//        if (frame.size.width < frame.size.height) {
+//            frame.size.height = frame.size.width;
+//        } else if (frame.size.width < frame.size.height) {
+//            frame.size.width = frame.size.height;
+//        }
     }
     
     return frame;
@@ -380,97 +391,118 @@
 #pragma mark - Reset -
 - (void)resetCropViewLayout
 {
-    BOOL animated = (self.cropView.angle == 0);
-    
-    if (self.resetAspectRatioEnabled) {
-        self.aspectRatioLockEnabled = NO;
+    if (_drawCropperView != nil) {
+        [_drawCropperView resetCroping];
+    } else {
+        BOOL animated = (self.cropView.angle == 0);
+        [self.cropView resetLayoutToDefaultAnimated:animated];
     }
-    
-    [self.cropView resetLayoutToDefaultAnimated:animated];
 }
 
 #pragma mark - Aspect Ratio Handling -
 - (void)showAspectRatioDialog
 {
-    if (self.cropView.aspectRatioLockEnabled) {
-        self.cropView.aspectRatioLockEnabled = NO;
-        self.toolbar.clampButtonGlowing = NO;
-        return;
-    }
-    
-    //Depending on the shape of the image, work out if horizontal, or vertical options are required
-    BOOL verticalCropBox = self.cropView.cropBoxAspectRatioIsPortrait;
-    
-    // In CocoaPods, strings are stored in a separate bundle from the main one
-    NSBundle *resourceBundle = nil;
-    NSBundle *classBundle = [NSBundle bundleForClass:[self class]];
-    NSURL *resourceBundleURL = [classBundle URLForResource:@"TOCropViewControllerBundle" withExtension:@"bundle"];
-    if (resourceBundleURL) {
-        resourceBundle = [[NSBundle alloc] initWithURL:resourceBundleURL];
-    }
-    else {
-        resourceBundle = classBundle;
-    }
-    
-    //Prepare the localized options
-    NSString *cancelButtonTitle = NSLocalizedStringFromTableInBundle(@"Cancel", @"TOCropViewControllerLocalizable", resourceBundle, nil);
-    NSString *originalButtonTitle = NSLocalizedStringFromTableInBundle(@"Original", @"TOCropViewControllerLocalizable", resourceBundle, nil);
-    NSString *squareButtonTitle = NSLocalizedStringFromTableInBundle(@"Square", @"TOCropViewControllerLocalizable", resourceBundle, nil);
-    
-    //Prepare the list that will be fed to the alert view/controller
-    NSMutableArray *items = [NSMutableArray array];
-    [items addObject:originalButtonTitle];
-    [items addObject:squareButtonTitle];
-    if (verticalCropBox) {
-        [items addObjectsFromArray:@[@"2:3", @"3:5", @"3:4", @"4:5", @"5:7", @"9:16"]];
-    }
-    else {
-        [items addObjectsFromArray:@[@"3:2", @"5:3", @"4:3", @"5:4", @"7:5", @"16:9"]];
-    }
-    
-    //Present via a UIAlertController if >= iOS 8
-    if (NSClassFromString(@"UIAlertController")) {
-        UIAlertController *alertController = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-        [alertController addAction:[UIAlertAction actionWithTitle:cancelButtonTitle style:UIAlertActionStyleCancel handler:nil]];
-        
-        //Add each item to the alert controller
-        NSInteger i = 0;
-        for (NSString *item in items) {
-            UIAlertAction *action = [UIAlertAction actionWithTitle:item style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-                [self setAspectRatioPreset:(TOCropViewControllerAspectRatioPreset)i animated:YES];
-                self.aspectRatioLockEnabled = YES;
-            }];
-            [alertController addAction:action];
+    if (_isEnableHandDrawingToCrop) {
+        if (self.cropView.aspectRatioLockEnabled) {
+            self.cropView.aspectRatioLockEnabled = NO;
+            self.toolbar.clampButtonGlowing = NO;
             
-            i++;
+            [_drawCropperView removeFromSuperview];
+            _drawCropperView = nil;
+        } else {
+            self.cropView.aspectRatioLockEnabled = YES;
+            self.toolbar.clampButtonGlowing = YES;
+            
+            _drawCropperView = [[TODrawCropperView alloc] initWithImage:_image];
+            _drawCropperView.delegate = self;
+            _drawCropperView.frame = self.cropView.bounds;
+            [_drawCropperView setup];
+            [self.cropView addSubview:_drawCropperView];
+            [self cropViewDidBecomeNonResettable];
+        }
+        [self resetCropViewLayout];
+
+    } else {
+        if (self.cropView.aspectRatioLockEnabled) {
+            self.cropView.aspectRatioLockEnabled = NO;
+            self.toolbar.clampButtonGlowing = NO;
+            return;
         }
         
-        alertController.modalPresentationStyle = UIModalPresentationPopover;
-        UIPopoverPresentationController *presentationController = [alertController popoverPresentationController];
-        presentationController.sourceView = self.toolbar;
-        presentationController.sourceRect = self.toolbar.clampButtonFrame;
-        [self presentViewController:alertController animated:YES completion:nil];
-    }
-    else {
-    //TODO: Completely overhaul this once iOS 7 support is dropped
+        //Depending on the shape of the image, work out if horizontal, or vertical options are required
+        BOOL verticalCropBox = self.cropView.cropBoxAspectRatioIsPortrait;
+        
+        // In CocoaPods, strings are stored in a separate bundle from the main one
+        NSBundle *resourceBundle = nil;
+        NSBundle *classBundle = [NSBundle bundleForClass:[self class]];
+        NSURL *resourceBundleURL = [classBundle URLForResource:@"TOCropViewControllerBundle" withExtension:@"bundle"];
+        if (resourceBundleURL) {
+            resourceBundle = [[NSBundle alloc] initWithURL:resourceBundleURL];
+        }
+        else {
+            resourceBundle = classBundle;
+        }
+        
+        //Prepare the localized options
+        NSString *cancelButtonTitle = NSLocalizedStringFromTableInBundle(@"Cancel", @"TOCropViewControllerLocalizable", resourceBundle, nil);
+        NSString *originalButtonTitle = NSLocalizedStringFromTableInBundle(@"Original", @"TOCropViewControllerLocalizable", resourceBundle, nil);
+        NSString *squareButtonTitle = NSLocalizedStringFromTableInBundle(@"Square", @"TOCropViewControllerLocalizable", resourceBundle, nil);
+        
+        //Prepare the list that will be fed to the alert view/controller
+        NSMutableArray *items = [NSMutableArray array];
+        [items addObject:originalButtonTitle];
+        [items addObject:squareButtonTitle];
+        if (verticalCropBox) {
+            [items addObjectsFromArray:@[@"2:3", @"3:5", @"3:4", @"4:5", @"5:7", @"9:16"]];
+        }
+        else {
+            [items addObjectsFromArray:@[@"3:2", @"5:3", @"4:3", @"5:4", @"7:5", @"16:9"]];
+        }
+        
+        //Present via a UIAlertController if >= iOS 8
+        if (NSClassFromString(@"UIAlertController")) {
+            UIAlertController *alertController = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+            [alertController addAction:[UIAlertAction actionWithTitle:cancelButtonTitle style:UIAlertActionStyleCancel handler:nil]];
+            
+            //Add each item to the alert controller
+            NSInteger i = 0;
+            for (NSString *item in items) {
+                UIAlertAction *action = [UIAlertAction actionWithTitle:item style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+                    [self setAspectRatioPreset:(TOCropViewControllerAspectRatioPreset)i animated:YES];
+                    self.aspectRatioLockEnabled = YES;
+                }];
+                [alertController addAction:action];
+                
+                i++;
+            }
+            
+            alertController.modalPresentationStyle = UIModalPresentationPopover;
+            UIPopoverPresentationController *presentationController = [alertController popoverPresentationController];
+            presentationController.sourceView = self.toolbar;
+            presentationController.sourceRect = self.toolbar.clampButtonFrame;
+            [self presentViewController:alertController animated:YES completion:nil];
+        }
+        else {
+            //TODO: Completely overhaul this once iOS 7 support is dropped
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        
-        UIActionSheet *actionSheet = [[UIActionSheet alloc] initWithTitle:nil
-                                                                 delegate:self
-                                                        cancelButtonTitle:cancelButtonTitle
-                                                   destructiveButtonTitle:nil
-                                                        otherButtonTitles:nil];
-        
-        for (NSString *item in items) {
-            [actionSheet addButtonWithTitle:item];
-        }
-        
-        if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad)
-            [actionSheet showFromRect:self.toolbar.clampButtonFrame inView:self.toolbar animated:YES];
-        else
-            [actionSheet showInView:self.view];
+            
+            UIActionSheet *actionSheet = [[UIActionSheet alloc] initWithTitle:nil
+                                                                     delegate:self
+                                                            cancelButtonTitle:cancelButtonTitle
+                                                       destructiveButtonTitle:nil
+                                                            otherButtonTitles:nil];
+            
+            for (NSString *item in items) {
+                [actionSheet addButtonWithTitle:item];
+            }
+            
+            if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad)
+                [actionSheet showFromRect:self.toolbar.clampButtonFrame inView:self.toolbar animated:YES];
+            else
+                [actionSheet showInView:self.view];
 #pragma clang diagnostic pop
+        }
     }
 }
 
@@ -550,6 +582,15 @@
 
 - (void)cropViewDidBecomeNonResettable:(TOCropView *)cropView
 {
+    self.toolbar.resetButtonEnabled = NO;
+}
+
+#pragma mark - Draw Crop View Delegates -
+- (void)cropViewDidBecomeResettable {
+    self.toolbar.resetButtonEnabled = YES;
+}
+
+- (void)cropViewDidBecomeNonResettable {
     self.toolbar.resetButtonEnabled = NO;
 }
 
@@ -689,32 +730,17 @@
 #pragma mark - Button Feedback -
 - (void)cancelButtonTapped
 {
-    bool isDelegateOrCallbackHandled = NO;
-    
     if ([self.delegate respondsToSelector:@selector(cropViewController:didFinishCancelled:)]) {
         [self.delegate cropViewController:self didFinishCancelled:YES];
-        
-        if (self.onDidFinishCancelled != nil) {
-            self.onDidFinishCancelled(YES);
-        }
-        
-        isDelegateOrCallbackHandled = YES;
+        return;
     }
     
-    if (self.onDidFinishCancelled != nil) {
-        self.onDidFinishCancelled(YES);
-        
-        isDelegateOrCallbackHandled = YES;
+    if (self.navigationController) {
+        [self.navigationController popViewControllerAnimated:YES];
     }
-    
-    if (!isDelegateOrCallbackHandled) {
-        if (self.navigationController) {
-            [self.navigationController popViewControllerAnimated:YES];
-        }
-        else {
-            self.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
-            [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
-        }
+    else {
+        self.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
+        [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
     }
 }
 
@@ -723,6 +749,21 @@
     CGRect cropFrame = self.cropView.imageCropFrame;
     NSInteger angle = self.cropView.angle;
 
+    if (_drawCropperView != nil) {
+        if ([self.delegate respondsToSelector:@selector(cropViewController:didCropToImage:withShapeLayer:)]) {
+            UIImage *image = [_drawCropperView cropImage];
+            if (image == nil) {
+                image = self.image;
+            }
+            //dispatch on the next run-loop so the animation isn't interuppted by the crop operation
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self.delegate cropViewController:self didCropToImage:image withShapeLayer:_drawCropperView.shapeLayer];
+            });
+            
+            [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
+        }
+        return;
+    }
     //If desired, when the user taps done, show an activity sheet
     if (self.showActivitySheetOnDone) {
         TOActivityCroppedImageProvider *imageItem = [[TOActivityCroppedImageProvider alloc] initWithImage:self.image cropFrame:cropFrame angle:angle circular:(self.croppingStyle == TOCropViewCroppingStyleCircular)];
@@ -755,90 +796,59 @@
             }
         }
         __weak typeof(activityController) blockController = activityController;
-#if __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_8_0
+        #if __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_8_0
         activityController.completionWithItemsHandler = ^(NSString *activityType, BOOL completed, NSArray *returnedItems, NSError *activityError) {
             if (!completed)
                 return;
             
-            bool isCallbackOrDelegateHandled = NO;
-            
-            if (self.onDidFinishCancelled != nil) {
-                self.onDidFinishCancelled(NO);
-                isCallbackOrDelegateHandled = YES;
-            }
             if ([self.delegate respondsToSelector:@selector(cropViewController:didFinishCancelled:)]) {
                 [self.delegate cropViewController:self didFinishCancelled:NO];
-                isCallbackOrDelegateHandled = YES;
             }
-            
-            if (!isCallbackOrDelegateHandled) {
+            else {
                 [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
                 blockController.completionWithItemsHandler = nil;
             }
         };
-#else
+        #else
         activityController.completionHandler = ^(NSString *activityType, BOOL completed) {
             if (!completed)
                 return;
             
-            bool isCallbackOrDelegateHandled = NO
-            
-            if (self.onDidFinishCancelled != nil) {
-                self.onDidFinishCancelled(NO)
-                isCallbackOrDelegateHandled = YES
-            }
             if ([self.delegate respondsToSelector:@selector(cropViewController:didFinishCancelled:)]) {
                 [self.delegate cropViewController:self didFinishCancelled:NO];
-                isCallbackOrDelegateHandled = YES
             }
-            
-            if (!isCallbackOrDelegateHandled) {
+            else {
                 [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
                 blockController.completionHandler = nil;
             }
         };
-#endif
+        #endif
         
         return;
     }
-    
-    BOOL isCallbackOrDelegateHandled = NO;
-    
-    //If the delegate/block that only supplies crop data is provided, call it
+
+    BOOL delegateHandled = NO;
+
+    //If the delegate that only supplies crop data is provided, call it
     if ([self.delegate respondsToSelector:@selector(cropViewController:didCropImageToRect:angle:)]) {
         [self.delegate cropViewController:self didCropImageToRect:cropFrame angle:angle];
-        isCallbackOrDelegateHandled = YES;
+        delegateHandled = YES;
     }
-    if (self.onDidCropImageToRect != nil) {
-        self.onDidCropImageToRect(cropFrame, angle);
-        isCallbackOrDelegateHandled = YES;
-    }
-    
-    BOOL isCircularImageDelegateAvailable = [self.delegate respondsToSelector:@selector(cropViewController:didCropToCircularImage:withRect:angle:)];
-    BOOL isCircularImageCallbackAvailable = self.onDidCropToCircleImage != nil;
-    
-    //If cropping circular and the circular generation delegate/block is implemented, call it
-    if (self.croppingStyle == TOCropViewCroppingStyleCircular && (isCircularImageDelegateAvailable || isCircularImageCallbackAvailable)) {
-        UIImage *image = [self.image croppedImageWithFrame:cropFrame angle:angle circularClip:YES];
+
+    //If cropping circular and the circular generation delegate is implemented, call it
+    if (self.croppingStyle == TOCropViewCroppingStyleCircular && [self.delegate respondsToSelector:@selector(cropViewController:didCropToCircularImage:withRect:angle:)]) {
+        UIImage *image = [self.image croppedImageWithFrame:cropFrame angle:angle circularClip:NO];
         
-        //Dispatch on the next run-loop so the animation isn't interuppted by the crop operation
+        //dispatch on the next run-loop so the animation isn't interuppted by the crop operation
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            if (isCircularImageDelegateAvailable) {
-                [self.delegate cropViewController:self didCropToCircularImage:image withRect:cropFrame angle:angle];
-            }
-            if (isCircularImageCallbackAvailable) {
-                self.onDidCropToCircleImage(image, cropFrame, angle);
-            }
+            [self.delegate cropViewController:self didCropToCircularImage:image withRect:cropFrame angle:angle];
         });
-        
-        isCallbackOrDelegateHandled = YES;
+
+        delegateHandled = YES;
     }
-    
-    BOOL isDidCropToImageDelegateAvailable = [self.delegate respondsToSelector:@selector(cropViewController:didCropToImage:withRect:angle:)];
-    BOOL isDidCropToImageCallbackAvailable = self.onDidCropToRect != nil;
-    
-    //If the delegate/block that requires the specific cropped image is provided, call it
-    if (isDidCropToImageDelegateAvailable || isDidCropToImageCallbackAvailable) {
+
+    //If the delegate that requires the specific cropped image is provided, call it
+    if ([self.delegate respondsToSelector:@selector(cropViewController:didCropToImage:withRect:angle:)]) {
         UIImage *image = nil;
         if (angle == 0 && CGRectEqualToRect(cropFrame, (CGRect){CGPointZero, self.image.size})) {
             image = self.image;
@@ -847,21 +857,15 @@
             image = [self.image croppedImageWithFrame:cropFrame angle:angle circularClip:NO];
         }
         
-        //Dispatch on the next run-loop so the animation isn't interuppted by the crop operation
+        //dispatch on the next run-loop so the animation isn't interuppted by the crop operation
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            if (isDidCropToImageDelegateAvailable) {
-                [self.delegate cropViewController:self didCropToImage:image withRect:cropFrame angle:angle];
-            }
-            if (isDidCropToImageCallbackAvailable) {
-                self.onDidCropToRect(image, cropFrame, angle);
-            }
-            
+            [self.delegate cropViewController:self didCropToImage:image withRect:cropFrame angle:angle];
         });
-        
-        isCallbackOrDelegateHandled = YES;
+
+        delegateHandled = YES;
     }
-    
-    if (!isCallbackOrDelegateHandled) {
+
+    if (!delegateHandled) {
         [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
     }
 }
@@ -881,6 +885,8 @@
 - (TOCropToolbar *)toolbar {
     if (!_toolbar) {
         _toolbar = [[TOCropToolbar alloc] initWithFrame:CGRectZero];
+        _toolbar.isClampForDraw = _isEnableHandDrawingToCrop;
+        [_toolbar setup];
     }
     return _toolbar;
 }
@@ -923,7 +929,7 @@
     
     _rotateClockwiseButtonHidden = rotateClockwiseButtonHidden;
     
-    if (_rotateClockwiseButtonHidden == NO) {
+    if (self.rotateButtonsHidden == NO) {
         self.toolbar.rotateClockwiseButtonHidden = _rotateClockwiseButtonHidden;
     }
 }
